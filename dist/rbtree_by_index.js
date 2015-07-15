@@ -137,15 +137,17 @@ TreeBase.prototype.iterator = function() {
 
 TreeBase.prototype.eachNode = function(cb) {
     var it=this.iterator(), node;
+    var index = 0;
     while((node = it.next()) !== null) {
-        cb(node);
+        cb(node, index);
+        index++;
     }
 };
 
 // calls cb on each node's data, in order
 TreeBase.prototype.each = function(cb) {
-    this.eachNode(function(node) {
-        cb(node.data);
+    this.eachNode(function(node, index) {
+        cb(node.data, index);
     });
 };
 
@@ -153,16 +155,18 @@ TreeBase.prototype.each = function(cb) {
 TreeBase.prototype.mapNode = function(cb) {
     var it=this.iterator(), node;
     var results = [];
+    var index = 0;
     while((node = it.next()) !== null) {
-        results.push(cb(node));
+        results.push(cb(node, index));
+        index ++;
     }
     return results;
 };
 
 // calls cb on each node-s data, store the result and return it
 TreeBase.prototype.map = function(cb) {
-    return this.mapNode(function(node) {
-        return cb(node.data);
+    return this.mapNode(function(node, index) {
+        return cb(node.data, index);
     });
 };
 
@@ -265,7 +269,6 @@ var TreeBase = require('./treebase');
 
 function RBTree(comparator) {
     this._root = null;
-    this.size = 0;
     this._nil = new Node('nil');
     this._nil.red = false;
     this._nil.weight = 0;
@@ -274,8 +277,15 @@ function RBTree(comparator) {
 RBTree.prototype = new TreeBase();
 
 RBTree.prototype.insert = function(position, data) {
-  this.size += 1;
   var nodeToInsert = new Node(data);
+  if (this.insert_node(position, nodeToInsert)) {
+    return nodeToInsert;
+  } else {
+    return false;
+  }
+};
+
+RBTree.prototype.insert_node = function(position, nodeToInsert) {
   var node = this._root;
   var insertAfter;
 
@@ -322,6 +332,31 @@ RBTree.prototype.insert = function(position, data) {
 
   this.insert_correction(nodeToInsert);
   return true;
+};
+
+RBTree.prototype.insert_between = function(onLeft, onRight, data) {
+  var newNode = new Node(data);
+  // onLeft and onRight are neighbors, so they can't have an element in between.
+  // For example, if onLeft exists, its right neighbor is either nil or right. If it's onRight,
+  // then onRight has no child. If neither left and right exist, the tree is empty.
+  if (onLeft && !onLeft.right) {
+    onLeft.right = newNode;
+    newNode.parent = onLeft;
+
+    this.insert_correction(newNode);
+  } else if (onRight && !onRight.left) {
+    onRight.left = newNode;
+    newNode.parent = onRight;
+
+    this.insert_correction(newNode);
+  } else {
+    this.insert_node(0, newNode);
+  }
+  newNode.traverse_up(function(node, parent) {
+    parent.weight += 1;
+  });
+
+  return newNode;
 };
 
 RBTree.prototype.rotate = function(side, node) {
@@ -412,7 +447,7 @@ RBTree.prototype.find = function() {
 **/
 RBTree.prototype.findNode = function(position, fun) {
   // if the weight is 'n', the biggest index is n-1, so we check that position >= size
-  if (position >= this.size) {
+  if (position >= this.get_size() || position < 0) {
     return null;
   }
   var node = this._root;
@@ -456,10 +491,14 @@ RBTree.prototype.findNode = function(position, fun) {
 RBTree.prototype.remove = function(position) {
   // if the weight is 'n', the biggest index is n-1, so we check that position >= size
   var nodeToRemove;
-  var left, right, nextNode, childNode, parent;
 
   nodeToRemove = this.findNode(position, function(node) { node.weight --; });
-  this.size -= 1;
+
+  return this.remove_helper(nodeToRemove);
+};
+
+RBTree.prototype.remove_helper = function(nodeToRemove) {
+  var left, right, nextNode, childNode, parent;
 
   // if there's only one child, replace the nodeToRemove to delete by it's child and update
   // the refs.
@@ -512,6 +551,14 @@ RBTree.prototype.remove = function(position) {
   return nextNode;
 };
 
+RBTree.prototype.remove_node = function(node) {
+  node.traverse_up(function(node, parent) {
+    parent.weight --;
+  });
+
+  return this.remove_helper(node);
+};
+
 RBTree.prototype.remove_correction = function(node, parent) {
   var self = this;
   var oppositeSide;
@@ -542,7 +589,7 @@ RBTree.prototype.remove_correction = function(node, parent) {
         neighbor = parent.get_child(side, true);
       }
 
-      neighbor.red = parent? parent.red: fals;
+      neighbor.red = parent? parent.red: false;
       parent.red   = false;
       if (neighbor.get_child(side, true)) {
         neighbor.get_child(side, true).red = false;
@@ -564,6 +611,42 @@ RBTree.prototype.remove_correction = function(node, parent) {
   if (node) {
     node.red = false;
   }
+};
+
+RBTree.prototype.get_size = function() {
+  return (this._root? this._root.weight : 0);
+};
+
+
+RBTree.prototype.print = function(fun) {
+  fun = fun || function(data) {
+    return data;
+  };
+
+  var next = this._root.min_tree();
+  var depth;
+  var lines = [], i, index = 0;
+  var line;
+
+  while (next) {
+    depth = next.depth();
+    for (line = index++ + ':', i = 0; i < depth; line += '\t', i++) {}
+    if (next.parent && next.parent.left === next) {
+      line += '/';
+    } else if (next.parent && next.parent.right === next) {
+      line += '\\';
+    } else {
+      line += '->';
+    }
+
+    line += fun(next.data);
+
+    lines.push(line);
+
+    next = next.next();
+  }
+  return lines.join('\n');
+
 };
 
 function Node(data) {
@@ -675,16 +758,43 @@ Node.prototype.prev = function(fun) {
   return parent;
 };
 
-Node.prototype.depth = function() {
-  var depth = 0;
+/** Traverse the tree upwards until it reaches the top. For each node traversed,
+  * call the function passed as argument with arguments node, parent.
+  * The function will be called h-1 times, h being the height of the branch.
+  **/
+Node.prototype.traverse_up = function(fun) {
+  var parent = this.parent;
   var node = this;
 
-  while (node) {
-    depth += 1;
-    node = node.parent;
+  while(parent) {
+    fun(node, parent);
+    node = parent;
+    parent = parent.parent;
   }
+};
 
+Node.prototype.depth = function() {
+  var depth = 0;
+  this.traverse_up(function() {
+    depth ++;
+  });
   return depth;
+};
+
+Node.prototype.position = function() {
+  var position = this.left? this.left.weight: 0;
+  var countFun = function(node, parent) {
+    if (parent.right === node) {
+      // for the left subtree
+      if (parent.left) {
+        position += parent.left.weight;
+      }
+      position += 1; // for the parent
+    }
+  };
+
+  this.traverse_up(countFun);
+  return position;
 };
 
 module.exports = RBTree;
