@@ -549,6 +549,7 @@ RBTree.prototype.remove_helper = function(nodeToRemove) {
     nodeToRemove.data = nextNode.data;
     nodeToRemove.weight = (nodeToRemove.left? nodeToRemove.left.weight: 0) +
       (nodeToRemove.right? nodeToRemove.right.weight: 0) + 1;
+
   }
 
   if (!nextNode.red) {
@@ -621,8 +622,10 @@ RBTree.prototype.remove_correction = function(node, parent) {
 };
 
 
-function Node(data) {
-    this.data = data;
+function Node(data, name) {
+    this._dataBindName = name || 'node';
+    this._data = data;
+
     this.left = null;
     this.right = null;
     this.parent = null;
@@ -639,6 +642,18 @@ function Node(data) {
             return this.getPrev();
         }
     });
+
+    Object.defineProperty(this, 'data', {
+        get: function() {
+            return this._data;
+        },
+        set: function(data) {
+            this._data = data;
+            // bind the data to this
+            data[this._dataBindName] = this;
+        }
+    });
+
 }
 
 Node.prototype.get_child = function(side, opposite) {

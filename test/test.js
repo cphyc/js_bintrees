@@ -48,11 +48,13 @@ var printTree = function(tree) {
     }
 
     str += next.data;
-    str += ' (w =' + next.weight + ')';
+    str += (next.red ? ' - R' : ' - B');
+
+    str += ' (w=' + next.weight + ')';
 
     console.log(str);
 
-    next = next.next();
+    next = next.next;
   }
 
 };
@@ -61,6 +63,7 @@ var checkTree = function(tree) {
   var errs = utils.check(tree);
 
   if (errs.length) {
+    printTree(tree);
     console.log(errs)
   };
 
@@ -259,6 +262,7 @@ describe('the RBTreeByIndex class', function() {
       tree.remove(2);
 
       checkTree(tree);
+
     });
 
     it('should be able to remove a node with only one left child', function() {
